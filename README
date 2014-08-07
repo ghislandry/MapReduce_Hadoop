@@ -1,0 +1,57 @@
+PLAN
+1 - Introduction et Algorithme
+2 - Quelques détails d’implémentation
+3 - Pré-traitements et Résultats 
+
+1 - Introduction et Algorithme
+
+A la  question à savoir quels sont les événements qui se produisent souvent ensemble, il peut être extrêmement difficile à de trouver des élément de réponses en utilisant les outils statistiques tels que la régression car ceux-ci peuvent ne pas être liés. Le programme suivant traite un cas particulier de ce problème: En effet, étant donné un ensemble de tags associé à différents posts, on voudrai savoir les 3 tags qui apparaissent souvent dans les dans les mêmes afin de faire des suggestions aux utilisateurs lors de leurs recherche.  Pour se référer au cas général, nos événements sont des tags provenant d’un ensemble de posts (StackOverflow pour ce cas).
+
+Une approche à la résolution de ce problème consiste à parcourir chaque post et en comptant le nombre de fois que l’on chaque paire de tags apparait. Une fois qu’on à calculé le nombre de fois que chaque paire apparait, il suffit de prendre les 3 tags qui apparaissent le plus souvent avec chacun des tags.
+
+L’algorithme MapReduce correspondant est le suivant:
+- Le Mapper va parcourir chaque post et émettre une combinaison de chaque paire de tags avec son nombre d’occurrence. 
+Par exemple, supposons que les tags suivants sont associé a un post: c++, hadoop,java,java-script,xml
+Le Mapper va produire les couples suivantes: ((c++, hadoop),1); ((c++,java),1); ((c++,java-script),1); ((c++,xml), 1); ((hadoop, java), 1); ((hadoop,java-script),1); ((hadoop,xml), 1); ((java,java-script),1) ; ((java,xml), 1) et enfin ((java-script, xml),1).
+Soit un total de 10 paires pour cet exemple.
+
+- Le Reducer quant à lui, se contente de faire compter le nombre d’occurrence de chaque paire, c’est a dire de faire la somme de tous les nombres associé à une paire.  
+La sortie du Reducer va ensuite être passée à un autre Mapper qui va se contenter de ne émettre que les 3 tags qui apparaissent le plus souvent avec un autre tag.
+
+Cet algorithme, est facile a implémenter et à comprendre,  mais présente l’inconvénient d’émettre beaucoup de couples clé valeur. Aussi, il est difficile voire impossible de faire des agrégations locales en se servant d’un Combiner. En fait, la clef émise par le Mapper est composé de deux mots du corpus ((hadoop,xml) par exemple) et donc on ne pourra agrégé que si une paire de cette forme apparait deux fois dans un même post.
+
+Alternativement, pour chaque tag dans un post, le Mapper va compter les occurrences de chacun autre tag dudit post et ne émettre quand il en a fini avec un tag. Il est donc indispensable de garder en mémoire cette information par exemple dans une table de hachage. Ainsi, avec notre example précédent, le Mapper va émettre les objects suivants où la clé du couple le tag le plus a gauche et sa valeur tous ce qui est entre les accolades:
+c++ -> {(hadoop, 1), (java, 1), (java-script, 1), (xml, 1)}
+java -> {(c++, 1), (hadoop,1), (java-script, 1), (xml, 1)}
+hadoop -> {(c++, 1), (java, 1), (java-script, 1), (xml,1)}
+java-script -> {(c++, 1), (java, 1), (hadoop,1), (xml,1)}
+xml -> {(c++, 1), (java, 1), (java-script, 1), (hadoop,1)}
+
+Le Reducer,  va extraire la valeur associé a chaque clé (c++ par exemple) et faire la somme,des nombres associé à chaque autre tag. 
+Contrairement au cas précédent, le Reducer n’émet pour chaque clé que les trois avec lesquels il apparait le plus souvent. il va tout émettre si la clé a moins de trois tags associé. Il est a noté que le Reducer émet lui aussi des couples de la forme identique a ceux reçu du Mapper ( c++ -> {(c,22500),(qt,14210),(c++11,12149)} par exemple)
+
+Ce second algorithme est beaucoup plus performant que le premier, car il émet beaucoup moins de couple, et devrai théoriquement être beaucoup plus rapide. Cependant, il est plus complexe et aussi on dois gérer la surcharge lié a l’utilisation de la table de hachage.  
+
+2 - Quelques détails d’implémentation
+
+Le programme est écrit en C++, et implémente MapReduce sur Hadoop. 
+Il comporte principalement deux classes SimTagsMap, SimTagsReduce qui implémentent respectivement le Mapper et le Reducer. Il contient également une classe auxiliaire, la classe WordPair, pour le traitement des paires de mots. 
+
+Puisque la libraire d’Hadoop qui permet d’écrire les programmes C++, ne prend pas en charge l’émettre des objects complexes autre que les chaines de caractères, le Mapper va formater sa sortie en string.
+Aussi, le Mapper supprimes les tags qui apparaissent plusieurs fois dans un meme post, ainsi, un ensemble de tags de la forme: c++, hadoop,java,java-script,xml, c++ va être traité comme c++, hadoop,java,java-script,xml.
+
+La sortie du programme est un fichier dans lequel la première colonne contient des tags et la seconde une liste de la forme: simtag1,MuttiplicitySimtag1:simtag2,MuttiplicitySimtag3:simtag3,MuttiplicitySimtag3
+Où, simtag1, simtag2, et simtag3 sont des tags et  MuttiplicitySimtag1, MuttiplicitySimtag2, et MuttiplicitySimtag3 le nombre de fois que chacun de ces trois tags apparaissent dans le même post de le tag associé (celui de la 1er colonne).
+
+Le programme est fourni avec un make file pour le compiler et ce document.
+
+3 - Pré-traitements et Résultats 
+
+Le seul pré-traitement effectué sur le fichier de données initial est la suppression des identifiant de tous les posts. Autrement; la première colonne du fichier d’entré doit être supprimée pour le bon fonctionnement du programme.
+
+Le résultat du test est présenté sous la forme d’un fichier TSV de nom RESULTAT
+Il a le format suivant:
+Tag	SimTag1	MultiplicitySimTag1	SimTag2	MultiplicitySimTag2	SimTag3	MultiplicitySimTag3
+
+Où les SimTag1, SimTag2, et SimTag2 sont les Tags les plus qui apparaissent le plus souvent avec Tag et MultiplicitySimTag1, MultiplicitySimTag2, et MultiplicitySimTag3 sont respectivement leurs nombre d’occurrence.
+ 
